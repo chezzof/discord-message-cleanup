@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Discord Message Cleanup",
+  "version": "1.1.0",
+  "description": "Clean up your own deletable messages in the current Discord chat",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": ["https://discord.com/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://discord.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["page-bridge.js", "fetch-capture.js"],
+      "matches": ["https://discord.com/*"]
+    }
+  ]
+}

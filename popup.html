@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Discord Message Cleanup</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="header">
+        <img class="logo" src="icons/logo.svg" alt="" width="44" height="44" />
+        <div>
+          <h1>Message Cleanup</h1>
+          <p class="warning">Private local tool. Uses your current Discord login.</p>
+        </div>
+      </header>
+
+      <section class="status-panel">
+        <div class="status-head">
+          <span class="label">Status</span>
+          <span id="status" class="status-pill">idle</span>
+        </div>
+        <div class="row"><span class="label">Channel</span><span id="channelId">-</span></div>
+        <div class="row"><span class="label">Account</span><span id="username">-</span></div>
+        <div class="metric-grid">
+          <div class="metric">
+            <span class="label">Scanned</span>
+            <strong id="scannedCount">0</strong>
+          </div>
+          <div class="metric">
+            <span class="label">Deleted</span>
+            <strong id="deletedCount">0</strong>
+          </div>
+          <div class="metric">
+            <span class="label">Failed</span>
+            <strong id="failedCount">0</strong>
+          </div>
+        </div>
+        <p id="errorMessage" class="error hidden"></p>
+      </section>
+
+      <section class="actions">
+        <button id="scanBtn" type="button">Scan</button>
+        <button id="deleteBtn" type="button" disabled>Delete 0 messages</button>
+        <div class="control-row">
+          <button id="pauseBtn" type="button" disabled>Pause</button>
+          <button id="resumeBtn" type="button" disabled>Resume</button>
+          <button id="stopBtn" type="button" disabled>Stop</button>
+        </div>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
