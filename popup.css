@@ -8,8 +8,8 @@
   --surface: rgba(17, 25, 46, 0.72);
   --surface-strong: rgba(23, 34, 62, 0.84);
   --surface-soft: rgba(255, 255, 255, 0.06);
-  --border: rgba(185, 218, 255, 0.18);
-  --border-strong: rgba(163, 226, 255, 0.34);
+  --border: rgba(185, 218, 255, 0.16);
+  --border-strong: rgba(163, 226, 255, 0.3);
   --text: #f4f8ff;
   --muted: #aebbd2;
   --faint: #7f8da6;
@@ -19,15 +19,15 @@
   --danger: #ff5d7a;
   --success: #5ef0a8;
   --warning: #ffd166;
-  --shadow: 0 22px 70px rgba(0, 0, 0, 0.46);
+  --shadow: 0 14px 42px rgba(0, 0, 0, 0.34);
 }
 
 html {
-  width: 360px;
+  width: 340px;
 }
 
 body {
-  width: 360px;
+  width: 340px;
   margin: 0;
   overflow: hidden;
   font-family:
@@ -35,15 +35,14 @@ body {
     sans-serif;
   color: var(--text);
   background:
-    radial-gradient(circle at 16% 0%, rgba(82, 224, 255, 0.22), transparent 30%),
-    radial-gradient(circle at 90% 18%, rgba(169, 121, 255, 0.2), transparent 28%),
+    radial-gradient(circle at 16% 0%, rgba(82, 224, 255, 0.16), transparent 30%),
+    radial-gradient(circle at 90% 18%, rgba(169, 121, 255, 0.14), transparent 28%),
     linear-gradient(145deg, #07101f 0%, #080b16 52%, #0e1021 100%);
 }
 
 .container {
-  width: 360px;
-  min-height: 430px;
-  padding: 18px;
+  width: 340px;
+  padding: 14px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 28%),
     rgba(4, 8, 18, 0.28);
@@ -52,43 +51,43 @@ body {
 .header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 13px;
 }
 
 .logo {
-  flex: 0 0 44px;
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
   box-shadow:
-    0 12px 34px rgba(82, 224, 255, 0.22),
+    0 10px 22px rgba(82, 224, 255, 0.16),
     inset 0 1px 0 rgba(255, 255, 255, 0.34);
 }
 
 h1 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 750;
+  font-size: 15px;
+  font-weight: 760;
   line-height: 1.1;
   letter-spacing: 0;
 }
 
 .warning {
-  margin: 5px 0 0;
-  max-width: 245px;
+  margin: 4px 0 0;
+  max-width: 235px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10.5px;
   line-height: 1.35;
 }
 
 .status-panel {
-  margin-bottom: 14px;
-  padding: 13px;
+  margin-bottom: 12px;
+  padding: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.025)),
     var(--surface);
   box-shadow: var(--shadow);
   backdrop-filter: blur(18px);
@@ -103,18 +102,18 @@ h1 {
 }
 
 .status-head {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .row {
-  min-height: 26px;
+  min-height: 24px;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
   color: var(--text);
   font-size: 12px;
 }
 
 .row span:last-child {
-  max-width: 205px;
+  max-width: 190px;
   overflow: hidden;
   text-align: right;
   text-overflow: ellipsis;
@@ -123,20 +122,20 @@ h1 {
 
 .label {
   color: var(--faint);
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .status-pill {
-  min-width: 72px;
-  padding: 5px 10px;
+  min-width: 68px;
+  padding: 4px 9px;
   border: 1px solid rgba(82, 224, 255, 0.3);
   border-radius: 999px;
   background: rgba(82, 224, 255, 0.1);
   color: var(--cyan);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 800;
   text-align: center;
   text-transform: capitalize;
@@ -164,13 +163,14 @@ h1 {
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 12px;
+  gap: 7px;
+  margin-top: 10px;
 }
 
 .metric {
   min-width: 0;
-  padding: 10px 9px;
+  min-height: 56px;
+  padding: 8px 9px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   background: var(--surface-soft);
@@ -179,14 +179,14 @@ h1 {
 .metric strong {
   display: block;
   margin-top: 5px;
-  font-size: 21px;
+  font-size: 19px;
   font-weight: 800;
   line-height: 1;
 }
 
 .error {
-  margin: 12px 0 0;
-  padding: 9px 10px;
+  margin: 10px 0 0;
+  padding: 8px 9px;
   border: 1px solid rgba(255, 93, 122, 0.28);
   border-radius: 8px;
   background: rgba(255, 93, 122, 0.1);
@@ -202,15 +202,15 @@ h1 {
 .actions {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 8px;
 }
 
 button {
   width: 100%;
-  min-height: 38px;
+  min-height: 36px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
-  padding: 9px 12px;
+  padding: 8px 12px;
   color: #ffffff;
   font: inherit;
   font-size: 12px;
@@ -220,7 +220,7 @@ button {
   background:
     linear-gradient(135deg, rgba(82, 224, 255, 0.92), rgba(106, 141, 255, 0.88)),
     #3668ff;
-  box-shadow: 0 14px 28px rgba(82, 136, 255, 0.28);
+  box-shadow: 0 10px 22px rgba(82, 136, 255, 0.22);
   transition:
     transform 140ms ease,
     border-color 140ms ease,
@@ -231,7 +231,7 @@ button {
 button:hover:not(:disabled) {
   transform: translateY(-1px);
   border-color: var(--border-strong);
-  box-shadow: 0 16px 34px rgba(82, 136, 255, 0.34);
+  box-shadow: 0 12px 26px rgba(82, 136, 255, 0.28);
 }
 
 button:focus-visible {
@@ -241,7 +241,10 @@ button:focus-visible {
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.43;
+  opacity: 1;
+  color: #7f8ba3;
+  background: rgba(21, 28, 48, 0.76);
+  border-color: rgba(255, 255, 255, 0.07);
   transform: none;
   box-shadow: none;
 }
@@ -253,14 +256,19 @@ button:disabled {
   box-shadow: 0 14px 28px rgba(255, 93, 122, 0.22);
 }
 
+#deleteBtn:disabled {
+  color: #8b738a;
+  background: rgba(55, 31, 52, 0.74);
+}
+
 .control-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 7px;
 }
 
 .control-row button {
-  min-height: 34px;
+  min-height: 32px;
   padding: 8px 6px;
   background: var(--surface-strong);
   box-shadow: none;
@@ -270,4 +278,10 @@ button:disabled {
   background:
     linear-gradient(135deg, rgba(94, 240, 168, 0.78), rgba(82, 224, 255, 0.56)),
     #207a55;
+}
+
+.control-row button:disabled,
+#resumeBtn:disabled {
+  color: #7f8ba3;
+  background: rgba(21, 28, 48, 0.76);
 }
