@@ -14,6 +14,7 @@ const stopBtn = document.getElementById("stopBtn");
 
 let activeTabId = null;
 let pollTimer = null;
+let hasLiveQueue = false;
 
 function setError(message) {
   if (!message) {
@@ -25,7 +26,11 @@ function setError(message) {
   errorMessageEl.classList.remove("hidden");
 }
 
-function updateUi(progress) {
+function updateUi(progress, options = {}) {
+  if (typeof options.hasQueue === "boolean") {
+    hasLiveQueue = options.hasQueue;
+  }
+
   const data = progress || {
     status: "idle",
     channelId: "",
@@ -48,14 +53,34 @@ function updateUi(progress) {
 
   const scanned = Number(data.scannedCount || 0);
   const isBusy = status === "scanning" || status === "deleting" || status === "paused";
+  const canDelete =
+    (status === "scanned" || status === "stopped") &&
+    scanned > 0 &&
+    hasLiveQueue;
 
   scanBtn.disabled = isBusy;
-  deleteBtn.disabled = !(status === "scanned" && scanned > 0);
+  deleteBtn.disabled = !canDelete;
   deleteBtn.textContent = `Delete ${scanned} message${scanned === 1 ? "" : "s"}`;
 
   pauseBtn.disabled = status !== "deleting";
   resumeBtn.disabled = status !== "paused";
   stopBtn.disabled = !(status === "scanning" || status === "deleting" || status === "paused");
+}
+
+function getStoredFallbackProgress(progress) {
+  if (!progress) {
+    return progress;
+  }
+
+  if (progress.status === "scanning" || progress.status === "deleting" || progress.status === "paused") {
+    return {
+      ...progress,
+      status: "idle",
+      scannedCount: 0,
+    };
+  }
+
+  return progress;
 }
 
 async function getActiveDiscordTab() {
@@ -86,8 +111,20 @@ function sendToContent(action) {
 }
 
 async function refreshProgress() {
+  if (activeTabId) {
+    try {
+      const result = await sendToContent("getStatus");
+      if (result && result.ok) {
+        updateUi(result.progress, { hasQueue: result.hasQueue });
+        return;
+      }
+    } catch (_err) {
+      hasLiveQueue = false;
+    }
+  }
+
   const stored = await chrome.storage.local.get("progress");
-  updateUi(stored.progress);
+  updateUi(getStoredFallbackProgress(stored.progress), { hasQueue: false });
 }
 
 async function startPolling() {

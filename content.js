@@ -6,6 +6,8 @@ let messageIds = [];
 let deleteIndex = 0;
 let paused = false;
 let stopped = false;
+let scanning = false;
+let deleting = false;
 
 let bridgeRequestId = 0;
 let pageBridgeReady = false;
@@ -191,7 +193,6 @@ async function resolveCurrentUser() {
 
 async function scanMessages(channelId) {
   const user = await resolveCurrentUser();
-  const ownIds = [];
   let before = null;
   let lastMessageId = "";
 
@@ -216,7 +217,7 @@ async function scanMessages(channelId) {
 
     for (const message of batch) {
       if (isOwnDeletableMessage(message, user)) {
-        ownIds.push(message.id);
+        messageIds.push(message.id);
       }
     }
 
@@ -226,7 +227,7 @@ async function scanMessages(channelId) {
     await saveProgress({
       channelId,
       status: "scanning",
-      scannedCount: ownIds.length,
+      scannedCount: messageIds.length,
       deletedCount: 0,
       failedCount: 0,
       lastMessageId,
@@ -239,7 +240,7 @@ async function scanMessages(channelId) {
     }
   }
 
-  return { ownIds, lastMessageId, user };
+  return { lastMessageId, user };
 }
 
 async function runScan() {
@@ -258,6 +259,8 @@ async function runScan() {
     return { ok: false, error: "Open a Discord channel or thread before scanning." };
   }
 
+  scanning = true;
+
   try {
     await saveProgress({
       channelId,
@@ -269,28 +272,27 @@ async function runScan() {
       errorMessage: "",
     });
 
-    const { ownIds, lastMessageId, user } = await scanMessages(channelId);
+    const { lastMessageId, user } = await scanMessages(channelId);
     if (stopped) {
       await saveProgress({
         channelId,
         status: "stopped",
-        scannedCount: ownIds.length,
+        scannedCount: messageIds.length,
         deletedCount: 0,
         failedCount: 0,
         lastMessageId,
         errorMessage: "",
         username: user.username || "",
       });
-      return { ok: true, stopped: true };
+      return { ok: true, stopped: true, scannedCount: messageIds.length, channelId };
     }
 
-    messageIds = ownIds;
     deleteIndex = 0;
 
     await saveProgress({
       channelId,
       status: "scanned",
-      scannedCount: ownIds.length,
+      scannedCount: messageIds.length,
       deletedCount: 0,
       failedCount: 0,
       lastMessageId,
@@ -298,7 +300,7 @@ async function runScan() {
       username: user.username || "",
     });
 
-    return { ok: true, scannedCount: ownIds.length, channelId };
+    return { ok: true, scannedCount: messageIds.length, channelId };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Scan failed.";
     const previous = (await getStoredProgress()) || {};
@@ -314,10 +316,16 @@ async function runScan() {
     });
     clearSensitiveState();
     return { ok: false, error: message };
+  } finally {
+    scanning = false;
   }
 }
 
 async function runDelete() {
+  if (scanning) {
+    return { ok: false, error: "Stop scanning before deleting." };
+  }
+
   if (!messageIds.length) {
     return { ok: false, error: "Run scan first." };
   }
@@ -329,6 +337,7 @@ async function runDelete() {
 
   stopped = false;
   paused = false;
+  deleting = true;
 
   let deletedCount = 0;
   let failedCount = 0;
@@ -431,7 +440,33 @@ async function runDelete() {
       username: progress.username || "",
     });
     return { ok: false, error: message, deletedCount, failedCount };
+  } finally {
+    deleting = false;
   }
+}
+
+function getLiveProgress(progress) {
+  if (!progress) {
+    return progress;
+  }
+
+  if (progress.status === "scanning" && !scanning) {
+    return {
+      ...progress,
+      status: messageIds.length ? "stopped" : "idle",
+      scannedCount: messageIds.length,
+    };
+  }
+
+  if ((progress.status === "deleting" || progress.status === "paused") && !deleting) {
+    return {
+      ...progress,
+      status: messageIds.length ? "stopped" : "idle",
+      scannedCount: messageIds.length,
+    };
+  }
+
+  return progress;
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -454,7 +489,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         paused = false;
         return { ok: true, stopped: true };
       case "getStatus": {
-        const progress = await getStoredProgress();
+        const progress = getLiveProgress(await getStoredProgress());
         return {
           ok: true,
           progress,
