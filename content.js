@@ -14,31 +14,45 @@ let pageBridgeReady = false;
 let pageBridgeInitPromise = null;
 
 const NON_DELETABLE_MESSAGE_TYPES = new Set([1, 2, 3, 4, 5, 21]);
+const SEARCH_PAGE_SIZE = 25;
+const MAX_DELETE_CONCURRENCY = 2;
+
+let messageIdSet = new Set();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function parseChannelId(pathname) {
+  const route = parseDiscordRoute(pathname);
+  return route ? route.channelId : null;
+}
+
+function parseDiscordRoute(pathname) {
   const parts = pathname.split("/").filter(Boolean);
   if (parts[0] !== "channels" || parts.length < 3) {
     return null;
   }
 
   if (parts[1] === "@me") {
-    return parts[2] || null;
+    return {
+      guildId: null,
+      channelId: parts[2] || null,
+      isDm: true,
+    };
   }
 
-  if (parts.length >= 4) {
-    return parts[3];
-  }
-
-  return parts[2] || null;
+  return {
+    guildId: parts[1] || null,
+    channelId: parts.length >= 4 ? parts[3] : parts[2] || null,
+    isDm: false,
+  };
 }
 
 function clearSensitiveState() {
   currentUser = null;
   messageIds = [];
+  messageIdSet = new Set();
   deleteIndex = 0;
 }
 
@@ -48,6 +62,46 @@ function isOwnDeletableMessage(message, user) {
     message.author.id === user.id &&
     !NON_DELETABLE_MESSAGE_TYPES.has(message.type ?? 0)
   );
+}
+
+function queueDeletableMessage(message, user, channelId) {
+  if (
+    !message ||
+    !message.id ||
+    (message.channel_id && message.channel_id !== channelId) ||
+    !isOwnDeletableMessage(message, user) ||
+    messageIdSet.has(message.id)
+  ) {
+    return false;
+  }
+
+  messageIdSet.add(message.id);
+  messageIds.push(message.id);
+  return true;
+}
+
+function flattenSearchMessages(body) {
+  if (!body || !Array.isArray(body.messages)) {
+    return null;
+  }
+
+  const messages = [];
+  for (const group of body.messages) {
+    if (Array.isArray(group)) {
+      for (const message of group) {
+        if (message && typeof message === "object") {
+          messages.push(message);
+        }
+      }
+      continue;
+    }
+
+    if (group && typeof group === "object") {
+      messages.push(group);
+    }
+  }
+
+  return messages;
 }
 
 async function saveProgress(patch) {
@@ -191,8 +245,84 @@ async function resolveCurrentUser() {
   return currentUser;
 }
 
-async function scanMessages(channelId) {
-  const user = await resolveCurrentUser();
+async function saveScanProgress(channelId, user, lastMessageId) {
+  await saveProgress({
+    channelId,
+    status: "scanning",
+    scannedCount: messageIds.length,
+    deletedCount: 0,
+    failedCount: 0,
+    lastMessageId,
+    errorMessage: "",
+    username: user.username || "",
+  });
+}
+
+async function scanMessagesWithSearch(route, user) {
+  if (!route.guildId || route.isDm) {
+    return null;
+  }
+
+  let offset = 0;
+  let lastMessageId = "";
+
+  try {
+    while (true) {
+      if (stopped) {
+        break;
+      }
+
+      while (paused && !stopped) {
+        await sleep(200);
+      }
+
+      const query = new URLSearchParams({
+        author_id: user.id,
+        channel_id: route.channelId,
+        include_nsfw: "true",
+        sort_by: "timestamp",
+        sort_order: "desc",
+        offset: String(offset),
+      });
+      const body = await discordFetch(`/guilds/${route.guildId}/messages/search?${query.toString()}`);
+      const found = flattenSearchMessages(body);
+      if (!found) {
+        return null;
+      }
+
+      const total = Number(body.total_results);
+      if (!found.length && Number.isFinite(total) && total > offset) {
+        return null;
+      }
+
+      for (const message of found) {
+        queueDeletableMessage(message, user, route.channelId);
+      }
+
+      if (found.length) {
+        lastMessageId = found[found.length - 1].id || lastMessageId;
+      }
+
+      await saveScanProgress(route.channelId, user, lastMessageId);
+
+      if (!found.length || (Number.isFinite(total) && offset + SEARCH_PAGE_SIZE >= total)) {
+        break;
+      }
+
+      offset += SEARCH_PAGE_SIZE;
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "";
+    if (message.includes("session expired")) {
+      throw err;
+    }
+    return null;
+  }
+
+  return { lastMessageId, user };
+}
+
+async function scanMessagesByHistory(channelId, user) {
   let before = null;
   let lastMessageId = "";
 
@@ -216,24 +346,13 @@ async function scanMessages(channelId) {
     }
 
     for (const message of batch) {
-      if (isOwnDeletableMessage(message, user)) {
-        messageIds.push(message.id);
-      }
+      queueDeletableMessage(message, user, channelId);
     }
 
     before = batch[batch.length - 1].id;
     lastMessageId = before;
 
-    await saveProgress({
-      channelId,
-      status: "scanning",
-      scannedCount: messageIds.length,
-      deletedCount: 0,
-      failedCount: 0,
-      lastMessageId,
-      errorMessage: "",
-      username: user.username || "",
-    });
+    await saveScanProgress(channelId, user, lastMessageId);
 
     if (batch.length < 100) {
       break;
@@ -243,21 +362,32 @@ async function scanMessages(channelId) {
   return { lastMessageId, user };
 }
 
+async function scanMessages(route) {
+  const user = await resolveCurrentUser();
+  const searchResult = await scanMessagesWithSearch(route, user);
+  if (searchResult || stopped) {
+    return searchResult || { lastMessageId: "", user };
+  }
+  return scanMessagesByHistory(route.channelId, user);
+}
+
 async function runScan() {
   stopped = false;
   paused = false;
   messageIds = [];
+  messageIdSet = new Set();
   deleteIndex = 0;
   currentUser = null;
 
-  const channelId = parseChannelId(window.location.pathname);
-  if (!channelId) {
+  const route = parseDiscordRoute(window.location.pathname);
+  if (!route || !route.channelId) {
     await saveProgress({
       status: "error",
       errorMessage: "Open a Discord channel or thread before scanning.",
     });
     return { ok: false, error: "Open a Discord channel or thread before scanning." };
   }
+  const channelId = route.channelId;
 
   scanning = true;
 
@@ -272,7 +402,7 @@ async function runScan() {
       errorMessage: "",
     });
 
-    const { lastMessageId, user } = await scanMessages(channelId);
+    const { lastMessageId, user } = await scanMessages(route);
     if (stopped) {
       await saveProgress({
         channelId,
@@ -339,9 +469,66 @@ async function runDelete() {
   paused = false;
   deleting = true;
 
-  let deletedCount = 0;
-  let failedCount = 0;
+  const counts = {
+    deleted: 0,
+    failed: 0,
+    lastMessageId: "",
+  };
   const progress = (await getStoredProgress()) || {};
+  let progressSave = Promise.resolve();
+
+  function saveDeleteProgress(status) {
+    const data = {
+      channelId,
+      status,
+      scannedCount: messageIds.length,
+      deletedCount: counts.deleted,
+      failedCount: counts.failed,
+      lastMessageId: counts.lastMessageId || messageIds[Math.max(0, deleteIndex - 1)] || "",
+      errorMessage: "",
+      username: progress.username || "",
+    };
+    progressSave = progressSave
+      .catch(() => {})
+      .then(() => saveProgress(data));
+    return progressSave;
+  }
+
+  async function runDeleteWorker() {
+    while (deleteIndex < messageIds.length) {
+      if (stopped) {
+        break;
+      }
+
+      while (paused && !stopped) {
+        await saveDeleteProgress("paused");
+        await sleep(200);
+      }
+
+      if (stopped || deleteIndex >= messageIds.length) {
+        break;
+      }
+
+      const messageId = messageIds[deleteIndex];
+      deleteIndex += 1;
+
+      try {
+        await discordFetch(`/channels/${channelId}/messages/${messageId}`, {
+          method: "DELETE",
+        });
+        counts.deleted += 1;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "";
+        if (message.includes("session expired")) {
+          throw err;
+        }
+        counts.failed += 1;
+      }
+
+      counts.lastMessageId = messageId;
+      saveDeleteProgress("deleting");
+    }
+  }
 
   try {
     await saveProgress({
@@ -349,97 +536,51 @@ async function runDelete() {
       channelId,
       status: "deleting",
       scannedCount: messageIds.length,
-      deletedCount,
-      failedCount,
+      deletedCount: counts.deleted,
+      failedCount: counts.failed,
       errorMessage: "",
     });
 
-    while (deleteIndex < messageIds.length) {
-      if (stopped) {
-        await saveProgress({
-          channelId,
-          status: "stopped",
-          scannedCount: messageIds.length,
-          deletedCount,
-          failedCount,
-          lastMessageId: messageIds[deleteIndex] || "",
-          errorMessage: "",
-          username: progress.username || "",
-        });
-        return { ok: true, stopped: true, deletedCount, failedCount };
-      }
+    let fatalError = null;
+    const workerCount = Math.min(MAX_DELETE_CONCURRENCY, messageIds.length);
+    const workers = Array.from({ length: workerCount }, () =>
+      runDeleteWorker().catch((err) => {
+        fatalError = fatalError || err;
+        stopped = true;
+      })
+    );
+    await Promise.all(workers);
+    await progressSave;
 
-      while (paused && !stopped) {
-        await saveProgress({
-          channelId,
-          status: "paused",
-          scannedCount: messageIds.length,
-          deletedCount,
-          failedCount,
-          lastMessageId: messageIds[deleteIndex] || "",
-          errorMessage: "",
-          username: progress.username || "",
-        });
-        await sleep(200);
-      }
-
-      const messageId = messageIds[deleteIndex];
-
-      try {
-        await discordFetch(`/channels/${channelId}/messages/${messageId}`, {
-          method: "DELETE",
-        });
-        deletedCount += 1;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "";
-        if (message.includes("session expired")) {
-          throw err;
-        }
-        failedCount += 1;
-      }
-
-      deleteIndex += 1;
-
-      await saveProgress({
-        channelId,
-        status: "deleting",
-        scannedCount: messageIds.length,
-        deletedCount,
-        failedCount,
-        lastMessageId: messageId,
-        errorMessage: "",
-        username: progress.username || "",
-      });
+    if (fatalError) {
+      throw fatalError;
     }
 
-    await saveProgress({
-      channelId,
-      status: "complete",
-      scannedCount: messageIds.length,
-      deletedCount,
-      failedCount,
-      lastMessageId: messageIds[messageIds.length - 1] || "",
-      errorMessage: "",
-      username: progress.username || "",
-    });
+    if (stopped) {
+      await saveDeleteProgress("stopped");
+      await progressSave;
+      return { ok: true, stopped: true, deletedCount: counts.deleted, failedCount: counts.failed };
+    }
 
-    messageIds = [];
-    deleteIndex = 0;
+    await saveDeleteProgress("complete");
+    await progressSave;
 
-    return { ok: true, deletedCount, failedCount };
+    clearSensitiveState();
+
+    return { ok: true, deletedCount: counts.deleted, failedCount: counts.failed };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Delete failed.";
     await saveProgress({
       channelId,
       status: "error",
       scannedCount: messageIds.length,
-      deletedCount,
-      failedCount,
+      deletedCount: counts.deleted,
+      failedCount: counts.failed,
       lastMessageId: messageIds[deleteIndex] || "",
       errorMessage: message,
       username: progress.username || "",
     });
-    return { ok: false, error: message, deletedCount, failedCount };
+    return { ok: false, error: message, deletedCount: counts.deleted, failedCount: counts.failed };
   } finally {
     deleting = false;
   }
