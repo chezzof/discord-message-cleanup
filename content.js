@@ -13,13 +13,6 @@ let pageBridgeInitPromise = null;
 
 const NON_DELETABLE_MESSAGE_TYPES = new Set([1, 2, 3, 4, 5, 21]);
 
-(function injectFetchCapture() {
-  const script = document.createElement("script");
-  script.src = chrome.runtime.getURL("fetch-capture.js");
-  script.onload = () => script.remove();
-  (document.head || document.documentElement).appendChild(script);
-})();
-
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -6,7 +6,7 @@
 
   const REQUEST_EVENT = "discordCleanupBridgeRequest";
   const RESPONSE_EVENT = "discordCleanupBridgeResponse";
-  const API_BASES = ["https://discord.com/api/v9", "https://discord.com/api/v10"];
+  const API_BASE = "https://discord.com/api/v9";
 
   let cachedAuthExport = null;
 
@@ -142,200 +142,79 @@
     return getUsableTokenFromExport(auth);
   }
 
-  function getTokenWithSource() {
+  function getToken() {
     const fromAuthExport = getTokenFromAuthExport();
     if (fromAuthExport) {
-      return { token: fromAuthExport, source: "authExport" };
+      return fromAuthExport;
     }
     const fromWebpackDefault = getTokenFromWebpackDefault();
     if (fromWebpackDefault) {
-      return { token: fromWebpackDefault, source: "webpackDefault" };
+      return fromWebpackDefault;
     }
     const fromStorage = readTokenFromLocalStorage();
     if (fromStorage) {
-      return { token: fromStorage, source: "localStorage" };
+      return fromStorage;
     }
-    return { token: null, source: "none" };
-  }
-
-  function getAuthorIdFromCache() {
-    try {
-      const ls = readLocalStorageIframe();
-      const raw = ls.getItem("user_id_cache");
-      if (!raw) {
-        return null;
-      }
-      return JSON.parse(raw);
-    } catch (_err) {
-      return null;
-    }
-  }
-
-  function getCurrentUser() {
-    const cachedId = getAuthorIdFromCache();
-    if (cachedId) {
-      return { id: String(cachedId), username: "" };
-    }
-
-    const auth = findAuthExport();
-    if (auth && typeof auth.getCurrentUser === "function") {
-      const user = auth.getCurrentUser();
-      if (user && user.id) {
-        return user;
-      }
-    }
-
-    if (!window.webpackChunkdiscord_app) {
-      return null;
-    }
-
-    let found = null;
-    window.webpackChunkdiscord_app.push([
-      [Symbol()],
-      {},
-      function (req) {
-        if (!req.c) {
-          return;
-        }
-        for (const mod of Object.values(req.c)) {
-          try {
-            if (!mod.exports || mod.exports === window) {
-              continue;
-            }
-
-            const candidates = [mod.exports];
-            for (const key in mod.exports) {
-              candidates.push(mod.exports[key]);
-            }
-
-            for (const exp of candidates) {
-              if (exp && typeof exp.getCurrentUser === "function") {
-                const user = exp.getCurrentUser();
-                if (user && user.id) {
-                  found = user;
-                  return;
-                }
-              }
-            }
-          } catch (_err) {
-            // continue searching modules
-          }
-        }
-      },
-    ]);
-    window.webpackChunkdiscord_app.pop();
-    return found;
+    return null;
   }
 
   function buildHeaders(token) {
-    const captured = window.__discordCleanupCapturedHeaders || {};
-    const authorization = isUsableToken(token)
-      ? token
-      : isUsableToken(captured.authorization)
-        ? captured.authorization
-        : null;
-    const headers = {};
-
-    if (authorization) {
-      headers.Authorization = authorization;
-    }
-
-    for (const [key, value] of Object.entries(captured)) {
-      if (key.toLowerCase() === "authorization") {
-        continue;
-      }
-      headers[key] = value;
-    }
-
-    return headers;
-  }
-
-  async function waitForCapturedHeaders(maxMs) {
-    const deadline = Date.now() + maxMs;
-    while (Date.now() < deadline) {
-      if (window.__discordCleanupCapturedHeaders && window.__discordCleanupCapturedHeaders.authorization) {
-        return true;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    return !!(window.__discordCleanupCapturedHeaders && window.__discordCleanupCapturedHeaders.authorization);
+    return {
+      Authorization: token,
+    };
   }
 
   async function performFetch(path, options) {
-    let tokenInfo = getTokenWithSource();
-    const hasUsableCapturedAuthorization = () =>
-      isUsableToken(window.__discordCleanupCapturedHeaders && window.__discordCleanupCapturedHeaders.authorization);
-
-    if (!tokenInfo.token && !hasUsableCapturedAuthorization()) {
-      await waitForCapturedHeaders(1500);
-      tokenInfo = getTokenWithSource();
-    }
-    const token = tokenInfo.token;
-    if (!token && !hasUsableCapturedAuthorization()) {
+    const token = getToken();
+    if (!token) {
       throw new Error("Could not read Discord session from this tab. Make sure you are logged in.");
     }
 
-    const headerMode =
-      !token && hasUsableCapturedAuthorization()
-        ? "captured"
-        : "built";
-
     const method = options.method || "GET";
-    let lastError = null;
+    let attempt = 0;
 
-    for (const base of API_BASES) {
-      const url = `${base}${path}`;
-      let attempt = 0;
+    while (attempt < 8) {
+      attempt += 1;
+      const response = await fetch(`${API_BASE}${path}`, {
+        method: method,
+        credentials: "include",
+        headers: buildHeaders(token),
+        referrer: window.location.href,
+        referrerPolicy: "no-referrer-when-downgrade",
+        mode: "cors",
+        body: options.body || null,
+      });
 
-      while (attempt < 8) {
-        attempt += 1;
-        const response = await fetch(url, {
-          method: method,
-          credentials: "include",
-          headers: buildHeaders(token),
-          referrer: window.location.href,
-          referrerPolicy: "no-referrer-when-downgrade",
-          mode: "cors",
-          body: options.body || null,
-        });
-
-        if (response.status === 429) {
-          let retryAfter = 1;
-          try {
-            const body = await response.json();
-            retryAfter = Number(body.retry_after) || 1;
-          } catch (_err) {
-            retryAfter = 1;
-          }
-          await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000 + 250));
-          continue;
+      if (response.status === 429) {
+        let retryAfter = 1;
+        try {
+          const body = await response.json();
+          retryAfter = Number(body.retry_after) || 1;
+        } catch (_err) {
+          retryAfter = 1;
         }
-
-        const text = await response.text();
-        let body = null;
-        if (text) {
-          try {
-            body = JSON.parse(text);
-          } catch (_err) {
-            body = text;
-          }
-        }
-
-        return {
-          ok: response.ok,
-          status: response.status,
-          body: body,
-          headerMode: headerMode,
-          tokenSource: tokenInfo.source,
-          errorCode: body && body.code ? body.code : null,
-          errorMessage: body && body.message ? body.message : null,
-        };
+        await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000 + 250));
+        continue;
       }
 
-      lastError = new Error(`Discord API error on ${base}`);
+      const text = await response.text();
+      let body = null;
+      if (text) {
+        try {
+          body = JSON.parse(text);
+        } catch (_err) {
+          body = text;
+        }
+      }
+
+      return {
+        ok: response.ok,
+        status: response.status,
+        body: body,
+      };
     }
 
-    throw lastError || new Error("Discord API request failed.");
+    throw new Error("Discord API request failed.");
   }
 
   document.addEventListener(REQUEST_EVENT, async (event) => {
@@ -348,8 +227,9 @@
 
     try {
       if (detail.action === "getCurrentUser") {
-        const user = getCurrentUser();
-        if (!user || !user.id) {
+        const result = await performFetch("/users/@me", { method: "GET" });
+        const user = result.body;
+        if (!result.ok || !user || !user.id) {
           throw new Error("Could not read current user from this Discord tab. Refresh the page and try again.");
         }
         dispatchResponse({
@@ -357,7 +237,7 @@
           ok: true,
           user: {
             id: String(user.id),
-            username: user.username || "",
+            username: user.username || user.global_name || "",
           },
         });
         return;
@@ -373,8 +253,6 @@
           ok: true,
           status: result.status,
           body: result.body,
-          headerMode: result.headerMode,
-          errorCode: result.errorCode,
         });
         return;
       }
